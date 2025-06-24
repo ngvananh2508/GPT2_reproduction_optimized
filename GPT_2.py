@@ -82,7 +82,7 @@ class Block(nn.Module):
 @dataclass
 class GPTConfig:
     block_size: int = 1024 # max sequence length
-    vocab_size: int = 50257 # number of tokens: 50,000 BPR merges + 256 bytes tokens + 1 <|endoftext|>
+    vocab_size: int = 50257 # number of tokens: 50,000 BPR merges + 256 bytes tokens + 1 <|endoftext|> token
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -127,7 +127,7 @@ class GPT(nn.Module):
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device) # shape (T)
         pos_emb = self.transformer.wpe(pos) # shape (T, n_embd)
         tok_emb = self.transformer.wte(idx) # shape (B, T, n_embd)
-        x = pos_emb + tok_emb # Broadcast B dimesion to pos
+        x = pos_emb + tok_emb # Broadcast B dimension to pos
         # forward the blocks of the transformer
         for block in self.transformer.h:
             x = block(x)
@@ -204,7 +204,7 @@ class GPT(nn.Module):
         print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} paramerters")
         print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
         # create AdamW optimizer and use the fused version if it is available
-        # fused the kernel (gather more operatios on one kernel) for better optimization.
+        # fused the kernel (gather more operations on one kernel) for better optimization.
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and 'cuda' in device
         print(f"using fused AdamW: {use_fused}")
