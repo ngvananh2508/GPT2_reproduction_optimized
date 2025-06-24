@@ -24,7 +24,7 @@ class CausalSelfAttention(nn.Module):
         self.n_embd = config.n_embd
         self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size)).view(1, 1, config.block_size, config.block_size))
         # not really a 'bias', more of a mask, but following the OpenAI/HF naming though
-        # self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size)).view(1, 1, config.block_size, config.block_size))
+        
     
     def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimension (n_embd)
@@ -43,11 +43,8 @@ class CausalSelfAttention(nn.Module):
         # att = F.softmax(att, dim=-1) # (B, nh, T, T)
         # # perform the attention and combine heads
         # y = att @ v # (B, nh, T, T) * (B, nh, T, hs) = (B, nh, T, hs)
-
         # flash attention: does not materialize attention matrices (do not wait for full matrices), instead of loading a small part and doing all the computation (including softmax by using online softmax computation)
         y = F.scaled_dot_product_attention(q,k,v, is_causal=True) # use flash attention
-        
-        
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         # output projection
         y = self.c_proj(y) # (B, T, C)
@@ -114,7 +111,7 @@ class GPT(nn.Module):
         if isinstance(module, nn.Linear):
             std = 0.02
             if hasattr(module, 'NANOGPT_SCALE_INIT'):
-                # 2: two residual pathways in each block, n_layer block, Var(X) = 1 -> Var(sum(X)) = n -> std(sum(x)) = sqrt(n) -> initialize sqrt(n) will get the std of output is 1
+                # 2: two residual pathways in each block, n_layer block, Var(X) = 1 -> Var(sum(X)) = n -> std(sum(x)) = sqrt(n) -> initialize 1/sqrt(n) will get the std of output is 1
                 std *= (2 * self.config.n_layer) ** -0.5
             torch.nn.init.normal_(module.weight, mean=0, std=std)
             if module.bias is not None:
@@ -207,7 +204,7 @@ class GPT(nn.Module):
         print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} paramerters")
         print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
         # create AdamW optimizer and use the fused version if it is available
-        # fused the kernel for better optimization.
+        # fused the kernel (gather more operatios on one kernel) for better optimization.
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and 'cuda' in device
         print(f"using fused AdamW: {use_fused}")
@@ -271,7 +268,7 @@ else:
     device='cpu'
     if torch.cuda.is_available():
         device='cuda'
-    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available(): # for macbookk
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available(): # for macbook
         device = 'mps'
     print(f"using device: {device}")
 
@@ -305,7 +302,7 @@ max_length = 50
 #model = GPT.from_pretrained('gpt2')
 model = GPT(GPTConfig(vocab_size=50304)) # exploit 4x4 matrix mutiplication structure
 model.to(device)
-model = torch.compile(model) # compile the file into a compiled file that provide overall image not execute piece by piece (Python)
+model = torch.compile(model) # compile the file into a compiled file that provide overall image, not execute piece by piece (Python)
 # -> load the values into kernels and do operations as much as possible, avoid round-trips on slow streams between HBM and kernels.
 if ddp:
     model = DDP(model, device_ids = [ddp_local_rank]) # average the gradients in backward pass and cast back to GPUs (overdue)
@@ -332,7 +329,7 @@ def get_lr(it):
 
 
 # optimize
-# optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8) #hyperparams of GPT-3
+# optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
 optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device=device) #hyperparams of GPT-3
 
 
@@ -376,7 +373,7 @@ for step in range(max_steps):
 # A100: 4x4 matrix multiplication, TF32: truncated the mantissa (precision) part of numbers (crop out 13 bits from FP32).
 # BF16: truncated the mantissa part three bits from FP32, FP16: truncated the range -> need to gradient scaling
 # FP: floating-point, BF: brain floating point.
-# Flashattention: compensate for torch.compile.
+# Flash attention: compensate for torch.compile.
 
 
 
